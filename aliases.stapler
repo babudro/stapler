@@ -1,0 +1,18 @@
+# Stapler Aliases file (A Babudro ISP Ltd. ispltd.org)
+# vim: ts=8:sw=8:
+#
+# CNAME aliases for server+domain combinations.
+# Use to establish a server alias in select domain(s).
+# For a name to exist in ALL domains, set it in the IP file instead.
+#
+# The domain indicates in which zone file the alias is to be placed.
+# Fields are separated with one or more spaces or TABs
+# Comment lines (beginning with #) and empty lines are ignored.
+#
+# Note:  The mail server should NOT be aliased - sendmail doesn't like it.
+#        So to have multiple names for your mail server, put all entries in
+#        the IP file(s), not here.
+#
+# Alias			RealServerName		Domain
+# ----------		-----------------	--------------
+webmail			www			yourdomain.ca

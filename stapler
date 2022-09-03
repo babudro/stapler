@@ -1,0 +1,1894 @@
+#!/usr/bin/perl
+# vim: ts=3 sw=3:
+#
+# Stapler DNS management tool for BIND 9
+# tech.support@ispltd.com		https://ispltd.org
+#
+# Copyright (c) 1999-2019 Angelo Babudro
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted
+# provided that the following conditions are met:
+#
+# - Redistributions of source code must retain the above copyright notice, this list of conditions
+#   and the following disclaimer.
+# - Redistributions in binary form must reproduce the above copyright notice, this list of
+#   conditions, and the following disclaimer in the documentation and/or other materials provided
+#   with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+# FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+# DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+# IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+# OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+#--------------------------------------------------------------------------------------------------
+#use strict;
+#use warnings;
+use Term::ANSIColor qw(:constants);
+use Sys::Hostname qw(hostname);
+use Socket;
+use File::Copy;
+use File::Basename;
+use Data::Dumper;
+$Data::Dumper::Indent = 3;
+$Data::Dumper::Sortkeys = 1;
+
+my $version = "4.42";
+my $updated = `stat -Lc "%y" $0`;
+$updated = substr($updated,0,10);
+my $ERROR = 0;
+my $WARN = 1;
+my $NOTICE = 2;
+my $datadir = undef;
+my $thisline = undef;
+my $thisdomain = undef;
+my $domfilename = undef;
+my $aline = undef;
+my $alias = undef;
+my $thisalias = undef;
+my @aliaslist = undef; 
+my $server = undef;
+my $domain = undef;
+my %domainswritten;
+my %domainlinecount;
+my $iw = undef;
+my $thisIPfile = undef;
+my $counter = 0;
+my $machinename = "";
+my $altWWW = "";
+my $zonefilename = "";
+my $mxno = 0;
+my $gotAlts = 0;
+my $rIP = undef;
+my $ip1 = undef;
+my $ip2 = undef;
+my $ip3 = undef;
+my $ip4 = undef;
+my $baseIP = undef;
+my @altNam = undef;
+my $rthisIP = undef;
+my $allmachines = undef;
+my $msg = undef;
+my $storeit = undef;
+my @wwws = undef;
+my @altAdd = undef;
+my $stopat = undef;
+my $numdots = 0;
+my @domline = undef;
+my $priority = undef;
+my $temp = undef;
+my $nsno = undef;
+my $emai = undef;
+my $notblank = undef;
+my $notcmt = undef;
+my $ddix = undef;
+my @DomLineArray = undef;
+my $no_ns = undef;
+my $is_slave = undef;
+my $rootcache = undef;
+my $xferlist = undef;
+my $serialfilename = undef;
+my $dateportion = undef;
+my $gotit = undef;
+my $cmtloc = undef;
+my $newdate = undef;
+my $mo = undef;
+my $day = undef;
+my $yr = undef;
+my $yrdate = undef;
+my $hr = undef;
+my $sec = undef;
+my $min = undef;
+my $weekday = undef;
+my $moday = undef;
+our $warnmsg = "";
+my $reverseMapDone = 0;
+
+my $dst = undef;
+my $ldns = undef;
+my $result = undef;
+my $is127 = undef;
+my $islocal = undef;
+my $not_allow = undef;
+my $notify = undef;
+my $numberoffiles = undef;
+my $sdix = undef;
+
+my @SlaveDoms = undef;
+my @MasterNS = undef;
+
+my $fullroot = undef;
+my $recursionlist = undef;
+my @addons = undef;
+my $baseaddress = undef;
+my $foundit = undef;
+
+our @TABstop = (0,9,17,25,33,60);
+our $DomFH = undef;
+our $ZoneFH = undef;
+
+if(isatty()) {
+	our $bricolour = RESET.BRIGHT_YELLOW;
+	our $stdcolour = RESET.WHITE;
+	our $dimcolour = RESET.CYAN;
+	our $errcolour = RESET.WHITE.ON_RED;
+	our $warncolour = RESET.BRIGHT_CYAN;
+	our $notecolour = RESET.YELLOW;
+	our $inverted = RESET.YELLOW.ON_BLUE;
+	our $underlined = UNDERLINE.BRIGHT_YELLOW;
+} else {
+	our $bricolour = "";
+	our $stdcolour = "";
+	our $dimcolour = "";
+	our $errcolour = "";
+	our $warncolour = "";
+	our $notecolour = "";
+	our $inverted = "";
+	our $underlined = "";
+}
+
+#Black       0;30     Dark Gray     1;30	Background colours are 40-47.
+#Blue        0;34     Light Blue    1;34
+#Green       0;32     Light Green   1;32
+#Cyan        0;36     Light Cyan    1;36
+#Red         0;31     Light Red     1;31	Combinations can be used, e.g., Light Red text on a Blue background:
+#Purple      0;35     Light Purple  1;35	 \[\033[44;1;31m\], although setting the colours separately
+#Brown       0;33     Yellow        1;33	 seems to work better (ie. \[\033[44m\]\[\033[1;31m\]).
+#Light Gray  0;37     White         1;37
+#Other attribute codes -- 4: Underscore, 5: Blink, 7: Inverse, and 8: Concealed.
+#|--------------------------------------------------------------------------------------------------[ Banner ]
+print "\n\n".$bricolour."Stapler  $version  DNS management tool ".$stdcolour." $updated  (c) Angelo Babudro  ISP Ltd.  https://ispltd.org".$stdcolour."\n\n";
+#|--------------------------------------------------------------------------------------------------[ History ]
+#
+# Summary:		Simplifies management of IPs, domains, and aliases/subdomains.
+#					Network details are stored in ASCII flat-file databases (usually in /etc/stapler).
+#					Stapler parses those files and creates all zone files and named.conf.
+#
+# Features:		Handles up to /8 networks
+#					Unlimited number of network blocks
+#					Unlimited number of domains
+#					Unlimited number of aliases
+#
+# Limitations:	No IPv6 support
+#
+# Required Files:
+# 1. /etc/stapler/domain.stapler (or new domain.primary and domain.secondary)
+# 2. /etc/stapler/a.b.c  where 'a.b.c' is the IP block base address
+#		(such as '10.0.0' or '10.1').  You must define these in stapler.conf.
+# 3. /etc/stapler/aliases.stapler for CNAME aliases
+#
+# Notes:	If you have settings you wish to remain in your named.conf file,
+#			you should add a #MOD# comment after those settings.  This tells
+#			Stapler where to begin adding zone file data.  If no named.conf
+#			file exists, one will be created.  If the file exists but there
+#			is no #MOD# comment, Stapler will append a #MOD# flag and its
+#			output to named.conf.
+#			Tested with SuSE 7.x and Gentoo 1.4 using distro-supplied packages
+#
+#|--------------------------------------------------------------------------------------------------[ History ]
+# 15-Nov-2000 Added /16 netblock handling
+# 30-Jan-2001 Eliminated 'notify yes' from named.slave file output
+# 08-Jan-2002 Added support for unlimited networks
+# 20-Apr-2002 Updated TTL handling for new standards since BIND4
+# 20-Jun-2002 Corrected bug in handling networks larger than /24
+# 07-Sep-2002 Corrected bug in slave DNS 'named.slave' file modifications
+# 09-Sep-2002 Corrected bug in IP column of subnet zone files
+# 22-Jan-2003 Added secure copy functionality to automatically xfer to ns2
+# 22-Feb-2003 Changed server file names to work better with PHP front-end
+# 04-Mar-2003 Moved executable to /usr/local/bin and configs to /etc/stapler
+# 05-Apr-2003 Executable and data files can now be in any directory
+# 22-Apr-2003 Added check to see if IP config files exist before running
+# 23-Apr-2003 Eliminated 'notify' altogether; user can adjust globally in named.conf instead
+# 16-Jun-2003 Changed $datadir from being in stapler.conf to dynamically applied here
+# 14-Jul-2003 Added NS3 and MX3 support
+# 24-Jul-2003 Corrected bug if NS3 is blank
+# 25-Aug-2003 Added support for up to 5 name servers
+# 11-Sep-2003 Added support for up to 4 mail exhangers
+# 01-Dec-2003 Added local zone files creation so the /var/named dir can be wiped clean
+# 19-Dec-2003 Corrected errors writing zones to named.conf
+# 22-Dec-2003 Consolidated netblock zone files, rather than writing individual files for IPs
+# 12-Feb-2004 Use $dnsdir in place of /var/named for systems (like gentoo) that use different named directory
+# 13-Feb-2004 Enhancements to prepare for allowing split primary/secondary domain authority on a NS
+#				Added all of the /etc/named.conf file to the code so that no existing named.conf is needed
+#				Enhancements to work with different flavours of GNU/Linux:
+#				- Replaced $dnsdir with $zonedir plus $pridir and $secdir
+#				- Added configuration options for forwarders
+#				- Added configuration options for local DNS IP addresses (on management interface)
+#				- Added confdir variable to allow gentoo's /etc/bind/named.conf
+# 26-Feb-2004	Allow files to be named as base net address (e.g., "65.140.100" or "stapler.65.140.100")
+# 02-Mar-2004	Finish 26-Feb work on allowing file names to be numeric or with a prefix
+# 03-Mar-2004	UI tidying and beautifying
+# 09-Mar-2004	Cosmetic
+# 18-Mar-2004	Look for config files in curdir, otherwise look in datadir path (below)
+# 20-Mar-2004	Cosmetic
+# 06-May-2004	A server name in both the aliases and IP files causes bind to bomb, and with no helpful error message.
+#				Added logic to detect this situation.
+# 02-Jul-2004	Corrected error with detecting duplicate machine names
+# 12-Oct-2004 4.7.3 Reversed naming of data file names for easier TAB expansion
+# 18-Oct-2004 4.7.4 Added support for alternate web server address in domain.stapler file
+# 25-Oct-2004 4.7.5 Added support for alternate mail servers and names in domain.stapler file
+# 28-Oct-2004 4.7.6 Added support for alternate settings for arbitrary server names
+# 01-Nov-2004 4.7.7 Enhanced alt settings to allow for 'none' settings
+# 15-Dec-2004 4.7.8 Error checking: check if an alias is defined in an IP address file
+# 12-Feb-2005 4.7.9 Bug fix with setting alternate server to "none" in domains.stapler
+# 13-Apr-2005 4.7.A Corrected detection of "smtp" server name when replacing with alternate
+# 07-May-2005 4.7.B Changed handling of web servers to allow multiple web server (via round-robin DNS) in $mainIP var
+# 30-May-2005 4.7.C Fixed bug with multiple web server feature when only one server is listed in stapler.conf
+# 18-Jun-2005 4.7.D Cosmetic changes, improved handling of base network addresses, improved config error checking
+# 16-Jul-2005 4.7e	Fix bug if "127." appeared anywhere on a comment line
+# 22-Jul-2005 4.7f	Add delegation-only lines by default to void Verisign's wildcard bad-idea
+# 28-Jul-2005 4.7g	Add domain.secondary for secondary DNS hosting, changed domain.stapler to domain.primary
+#					Added support for /chroot/dns.
+# 16-Sep-2005 4.7h	Complete handling of secondary domain names (domain.secondary).
+# 17-Sep-2005 4.7i	Fix bug with DNS running chroot.
+# 19-Sep-2005 4.7j	Minor bug fix.
+# 21-Sep-2005 4.7k	Have named.slave files automatically copied (via scp) to other name servers
+# 14-Oct-2005 4.7m	Changed all MXs to priority '10' to avoid problem of spammers targeting secondary MXs
+# 26-Oct-2005 4.7n	Minor bug fix to detect if no secondary domain file is present.
+# 09-Feb-2006 4.7o	Minor changes to move over to using rndc instead of 'named restart'
+# 21-Mar-2006 4.7p	Added recursion rules to prevent Denial of Service attacks
+# 28-Apr-2006 4.7r	Removed old statistics-interval from named.conf header, so older versions of BIND will now use default
+# 01-May-2006 4.7s	Increased maximum number of name servers to 10
+# 17-Jun-2006 4.7t	Changes to work with SuSE 10.1
+# 19-Jul-2006 4.8	Fixed 'notify yes' on slave DNS. Version bump.
+# 20-Sep-2006 4.9	Moved recursion network list from here to /etc/stapler.conf
+# 08-Sep-2007 4.10	Colour changed to work better on white background
+# 27-Oct-2007 4.11	Minor changes in recursion handling, now uses ACLs
+# 09-Dec-2008 4.12 Added runas variable to set the ownership of created files.
+# 22-Dec-2008 4.13 Improved error trapping for config file missing data
+# 29-Dec-2008 4.14 Put recursion details on the screen
+# 02-Jan-2009 4.15 Error checking of DNS server names.
+# 24-Feb-2009 4.16 Message enhancement (very minor).
+# 07-Apr-2009 4.17 Improved error checking of config file.
+# 05-Oct-2009 4.18 Verify that each domain in aliases file is also in domains.primary.
+# 14-Dec-2010 4.19 Perl 'rename' no longer works so changed to 'copy'.  Removed chroot since new version mounts traditional directories there.
+# 06-Apr-2011 4.20 root.cache seems to be new preferred default file name (line 359)
+# 19-Jun-2011 4.21 named.cache is the new standard for the root name servers cache.
+# 24-Jun-2011 4.22 changed a spot where I still had named.cache to named.root
+# 28-Jun-2011 4.23 Updated for changes in rndc and named.conf
+# 01-Aug-2011 4.24 Cosmetics, enabled Core's forwarding servers by default, added comment about rndc.key.
+# 05-Aug-2011 4.25 Fixed a bug in writing of named.slave file.
+# 07-Aug-2013 4.26 Allow IP address field of Alt MXs to be "none" to allow for external services.
+# 31-Dec-2013 4.27 SPF record handling in domain.primary file.
+# 17-Feb-2017 4.28 Added support for dynamic IP addresses, such as residential service where it can change frequently
+#                  and you only have a single IP address rather than a block of addresses.
+#                  Dynamic IP addresses are in a file named 'dyanmic' that can be updated by script called from Apache.
+#                  This permits a Cron job to be placed on a server that uses wget to run the script on the DNS server
+#                  which would then update the dynamic IP address and refresh DNS whenever it changes.
+# 11-Mar-2017 4.29 Support for TXT records in domain.primary file.
+#                  Changed runas to named_user and added www_user in stapler.conf.
+#                  Support for DKIM TXT records in domain.primary file.
+#                  Added support for @fwd array in stapler.conf that was never implemented.
+# 19-Oct-2017 4.30	Improved configuration file format that is easier to maintain and offers new features.
+# 18-Jan-2018 4.31	Added -h/--help screen.  Added -b/--batch operation flag.
+# 29-Jan-2019 4.35	Fix bugs in named.slave file.  Add some comments and checks for use with CentOS/RHEL/OEL (not well tested).
+#					Fix in-addr-arpa file format (was missing a period at the end of the domain name around 1121).
+# 04-Aug-2020 4.36	Removed deprecated cleaning-interval; older versions of BIND will now use default
+# 					Commented-out deprecated dnssec-enable.
+# 10-Nov-2020 4.37	Updated localhost.zone to recommended use of localhost in place of @.
+# 27-May-2021 4.38	Fix and improve rndc key generation and validation.  Fix handling of no forwarders.
+# 24-Aug-2021 4.39	Do not automatically write a 'www' record unless it is nowhere else defined.
+# 21-Dec-2021 4.40	Ignore comments in aliases file when writing www record.
+# 28-Feb-2022 4.41	Alert on unknown parameter.  Fix handling extra def lines (e.g., TXT, DNSSEC, etc.) in domain.* files.
+# 02-Jun-2022 4.42	Correct possible ownership issue in remote DNS servers' config files.
+#
+# Notes:
+#	File named.conf.include is created around line 500 on the master, but must be created manually on slaves.
+#
+# ---------------------------------------------------------------------------------------------------------------------
+our %options;
+my $item;
+foreach(@ARGV) {
+	($item = $_) =~ tr/-//d;
+	if(length($item) > 1) {
+		print "Error: unknown parameter:  ".$bricolour.$item.$stdcolour."\n";
+		exit;
+	}
+	$options{$item} = 1;
+}
+if($options{h} || $options{help}) {
+	print "Usage:	stapler [options]\n\n";
+	print $bricolour."Options:\n\t".$underlined."Short\tLong Opt".tabto(30)."Description".$dimcolour."\n";
+	print "\t-d\t--debug".tabto(30)."Verbose output to aid in debugging problems.\n";
+	print "\t-n\t--dryrun".tabto(30)."Write files but do not reload BIND.\n";
+	print "\t-nn\t--tmp".tabto(30)."Dry run, write files to /var/tmp/ instead of /var/bind/\n";
+	print "\t-b\t--batch".tabto(30)."Do not pause to ask any questions and disable colours, suitable for cron and e-mail output.\n";
+	print "\nMultiple options may be given individually (e.g., -b -n), but not together (e.g., -bn).\n";
+	exit;
+}
+
+# ======================================================================
+#
+# Configuration: Change values in stapler.conf to suit your network,
+#                not what is below
+#
+my @confdirs = (".", "/etc/stapler/active", "/etc/stapler");
+foreach my $adir (@confdirs) {
+	if(-r $adir."/stapler.conf") {
+		$datadir = $adir;
+	}
+}
+if(!-r "$datadir/stapler.conf") {
+	print $errcolour."Error:  Can't find 'stapler.conf'${stdcolour}.\n\n";
+	exit;
+}
+my $configfile = $datadir."/stapler.conf";
+
+my $ErrorCondition = 0;
+
+my @domainname = read_conf("domainname", 1);
+my @ns = read_conf("ns");
+my @slavedns = read_conf("slavedns", 0, 1);
+if(defined $slavedns[$#slavedns]) {
+	$ErrorCondition += &validateAddrs(@slavedns);
+}
+my @IPfiles = read_conf("IPfiles");
+$ErrorCondition += &validateFiles(@IPfiles);
+my @OurNetworks = read_conf("ournet");
+$ErrorCondition += &validateAddrs(@OurNetworks);
+my @named_user = read_conf("named_user", 1);
+my @checkin_host = read_conf("checkin_host", 1);
+my @www_user = read_conf("www_user", 1);
+my @mainIP = read_conf("mainIP", 1);
+my @ns1IP = read_conf("ns1IP", 1);
+my @fileprefix = read_conf("fileprefix", 1);
+my @mail = read_conf("mail");
+my @fwd = read_conf("fwd", 0, 1);
+$ErrorCondition += &validateAddrs(@fwd);
+my @email = read_conf("email", 1);
+my @ttl = read_conf("ttl", 1);
+my @refresh = read_conf("refresh", 1);
+my @retry = read_conf("retry", 1);
+my @expire = read_conf("expire", 1);
+my @minttl = read_conf("minttl", 1);
+my @confdir = read_conf("confdir", 1);
+die(__LINE__." $confdir[0] not found.  Check confdir definition in $configfile\n") if(!-d $confdir[0]);
+my $zonedir;
+if($options{nn} || $options{tmp}) {
+	$zonedir = "/var/tmp/";
+	if(!-d "$zonedir/$pridir") {
+		`mkdir -p $zonedir/$pridir`;
+	}
+	`mkdir -p $zonedir/$secdir` if(!-d "$zonedir/$secdir");
+	`mkdir -p $zonedir/$statusdir` if(!-d "$zonedir/$statusdir");
+	&debugWrite(__LINE__, "Zonedir is $zonedir etc.\n");
+} else {
+	my @tmp = read_conf("zonedir", 1);
+	$zonedir = $tmp[0];
+}
+
+# Check if BIND is running in a jailed root environment
+#
+my $chroot = 0;
+my $running = `rndc status 2>/dev/null|grep -c "up and running"`;
+my $runningConfig = `rndc status 2>/dev/null|grep ^configuration|awk '{print \$NF}'`;	# Get the last field
+if($running eq 0) {
+	&showerror("named is not running.", $NOTICE, __LINE__);
+} else {
+	#$running = 1;
+	chomp($runningConfig);
+	if($runningConfig =~ /\((.*)\)/) {
+		&showerror("BIND is running in a chroot jail.", $NOTICE, __LINE__);
+		$chroot = 1;
+	}
+	$runningConfig =~ s/\((.*)\)/$1/;											# Remove parentheses, if they exist
+	if($runningConfig eq "") {
+		&showerror(`rndc status 2>&1`, $WARN, __LINE__);
+		&showerror("Assuming named is not running.", $NOTICE, __LINE__);
+	} elsif(-e $runningConfig) {
+		&showerror("Running config: $runningConfig", $NOTICE, __LINE__);
+	} else {
+		&showerror("Missing: config $runningConfig does not exist", $WARN, __LINE__);
+	}
+	my $configBase = $runningConfig;
+	$configBase =~ s#/etc/named.conf##;
+	#my $cdir = `grep "^[[:space:]]directory" $runningConfig | sed 's#.*"/#/#; s#".*##;'`;
+	&debugWrite(__LINE__, "Use $configBase as base directory");
+	#$zonedir = $configBase.$zonedir;
+}
+print "\n";
+
+&debugWrite(__LINE__, "Zonedir is $zonedir etc.");
+die(__LINE__." $zonedir not found.  Check zonedir definition in $configfile\n") if(!-d $zonedir);
+@tmp = read_conf("pridir", 1);
+my $pridir = $tmp[0];
+die(__LINE__." $zonedir/$pridir not found.  Check pridir in $configfile\n") if(!-d "$zonedir/$pridir");
+@tmp = read_conf("secdir", 1);
+my $secdir = $tmp[0];
+die(__LINE__." $zonedir/$secdir not found.  Check secdir in $configfile\n") if(!-d "$zonedir/$secdir");
+@tmp = read_conf("statusdir", 1);
+my $statusdir = $tmp[0];
+die(__LINE__." $statusdir not found.  Check statusdir in $configfile\n") if(!-d "$statusdir");
+my @remotecopy = read_conf("remotecopy", 1);
+@tmp = read_conf("rndckey", 1);
+my $rndckey = $tmp[0];
+if($rndckey eq "hostname -f") {
+	$rndckey = `hostname -f`;
+	chomp($rndckey);
+}
+
+#require "$datadir/stapler.conf";
+my $domainlist = "$datadir/domain.stapler";
+my $secondlist = "";
+if(!-e "$domainlist") {
+	$domainlist = "$datadir/domain.primary";
+	$secondlist = "$datadir/domain.secondary";
+}
+my $aliasfile = "$datadir/aliases.stapler";
+my $webserver = $mainIP[0];
+#
+# Check if any of the IP addresses listed in @IPfiles in stapler.conf
+# are included in the address(es) given in $webserver in stapler.conf
+#
+my $allIPs = @IPfiles;
+$foundit = 0;
+foreach $baseaddress (@IPfiles) {
+	if( index($webserver, $baseaddress) >= 0 && index($webserver, ".") > 0 ) {
+		$foundit = 1;
+		last;
+	}
+}
+if( ! $foundit  ) {
+	$webserver = $IPfiles[0].$mainIP[0];
+}
+
+# Read the directory, stuff an array automatically
+@addons = qw(stapler.custom stapler.addon0 stapler.addon1);
+
+# ----------------------------------------------------------------------
+
+
+# print "Data directory		".$dimcolour.$datadir.$stdcolour."\n";
+print "BIND dirs	".$dimcolour.$zonedir."  $zonedir/$pridir  $zonedir/$secdir".$stdcolour."\n";
+#if($pridir eq "") {
+#	print "$zonedir/$secdir";
+#} else {
+#	print "$zonedir/";
+#}
+#print $stdcolour."\n";
+print "Primary Domain	".$bricolour.$domainname[0].$stdcolour."\n";
+print "DNS Servers".tabto(16);
+my $column = 0;
+my $total_cols = `tput cols`;
+my $colpos;
+my $ns_defined = scalar(@ns);
+for($server=0; $server<$ns_defined; $server++) {
+	if($ns[$server] ne "") {
+		printf "%d:%-20s  ", $server+1, $ns[$server];
+		if($ns[$server] =~ /^[0-9.]+$/) {
+			print "\n";
+			&showerror("DNS server name $ns[server] looks like an IP address.  Check ns lines in stapler.conf", $ERROR, __LINE__);
+			exit 1;
+		}
+		$column += 26;
+		if($column > ($total_cols-26)) {
+			$column = 0;
+			print "\n".tabto(16);
+		}
+		$numdots = ($ns[$server] =~ tr/.//);						#|Count the dots
+		my $isIPaddress = ($numdots eq 3 && $ns[$server] =~ "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+");
+		if($numdots != 2 && ! $isIPaddress) {
+			$warnmsg .= "There are $numdots dots in ".$ns[$server].".  NS definitions in stapler.conf should be FQDNs.";
+			if($numdots == 0) {
+				print "\n";
+				&showerror($warnmsg, $ERROR, __LINE__);
+				exit 1;
+			}
+			&showerror($warnmsg, $WARN, __LINE__);
+		}
+	}
+}
+if($ns_defined) { 
+	print "\n"; 
+} else {
+	&showerror("No Name Servers are defined in the \@ns array in stapler.conf.  ".$ns_defined, $ERROR, __LINE__);
+	$ErrorCondition++;
+}
+print "Master DNS".tabto(16).$ns1IP[0]."\n";
+
+if(defined $slavedns[$#slavedns]) {
+	my $asize = scalar(@slavedns);
+	print "Slave DNS".tabto(16).$asize;
+	print ( ($asize eq 1) ? " is" : " are" );
+	print " defined\n";
+} else {
+	&showerror("No slave Name Servers are defined in stapler.conf.  There is typically at least one slavedns definition.", $WARN, __LINE__);
+#	No slaves is a non-fatal error, so don't increment $ErrorCondition++;
+}
+&showerror($warnmsg, $NOTICE, __LINE__);
+my $mx_defined = scalar(@mail);
+$column = 0;
+for($server=0; $server<$mx_defined; $server++) {
+	if($mail[$server] ne "") {
+		$colpos = $column*30+16;
+		print tabto($colpos);
+		printf "MX %d %s", 10+($server*10), $mail[$server];
+		$column++;
+		if($column > 3) { $column = 0; }
+	}
+#	if(defined $mail[$server] && $mail[$server] ne '') {		#|$mail[] is defined in stapler.conf
+#		print "	MX ";
+#		print 10+($server * 10);
+#		print " $mail[$server].$domainname[0]";
+#	}
+}
+if($mx_defined) { print "\n"; }
+
+print "		WWW ".$bricolour."$webserver".$stdcolour." (or other domain base address, unless explicitly defined)\n";
+
+print "\nAdmin e-mail	".$dimcolour.$email[0].$stdcolour." (dotted notation, no at-sign)\n".$stdcolour;
+print "Domain list	".$dimcolour.$domainlist."	".$secondlist.$stdcolour."\n";
+print "Alias file	".$dimcolour.$aliasfile.$stdcolour."\n";
+printf "rndc key name   %s\n", $rndckey;
+print "\nAddress files";
+my $ix = 0;
+do {
+	print tabto(16).$IPfiles[$ix].tabto(33);
+	$IPfiles[$ix] = "$datadir/$IPfiles[$ix]";
+	if($IPfiles[$ix] =~ "dynamic") {									#|Make sure this is owned by the web server UID
+		print "\e[sChecking web server user on ".$checkin_host[0]."... ";
+		chomp(my $www_user = `ssh $checkin_host[0] 'ps -o user= -C nginx|tail -n1'`);
+		print "\e[u\e[0K";
+		if($www_user ne "") {
+			print "✔";
+		} else {
+			print "✘";
+			chomp(my $www_user = system("ssh ".$checkin_host[0]." 'ps -o user= -C apache2|tail -n1'"));
+			if($www_user ne "") {
+				print "✔";
+			} else {
+				print "✘";
+			}
+		}
+		if($www_user ne "") {
+			print "\e[s ".$www_user;
+			my $fileUID = (stat $IPfiles[$ix])[4];
+			my $fileUser = (getpwuid $fileUID)[0];
+			if($fileUser ne $www_user) {
+				print $bricolour." ssh ".$checkin_host[0]." chown ".$www_user." /var/www/dns/dynamic".$stdcolour;
+				system("ssh ".$checkin_host[0]." chown ".$www_user." /var/www/dns/dynamic");
+				print "\e[u\e[0K✔";
+				# FIXME: If above getpwnam failed (e.g., checkin.php runs somewhere
+				# other than localhost) then uid and gid are blank.
+				#chown $uid, $gid, $IPfiles[$ix];
+				#print $bricolour."chown ".$uid.":".$gid." ".$IPfiles[$ix].$stdcolour;
+			}
+		}
+	}
+	&deriveNetblock($IPfiles[$ix]);									#|Get rIP
+	print $dimcolour."$rIP.in-addr.arpa".$stdcolour if($rIP ne "" && $rIP ne "dynamic");
+	if(!-e "$IPfiles[$ix]") {
+		print "	".$bricolour."DOES NOT EXIST - edit stapler.conf".$stdcolour;
+		$ErrorCondition++;
+	}
+	print "\n";
+	$ix++;
+} until !defined $IPfiles[$ix];
+$recursionlist = &makerecursionlist;
+$recursionlist =~ s/[;\n\t]+/ /g;
+print $bricolour."Recursion list\t".$dimcolour.$recursionlist.$stdcolour."\n";
+if(-e "$confdir[0]/named.conf") {
+	print $bricolour."Nota Bene".$stdcolour."	$confdir[0]/named.conf will be copied to named.conf.backup, ".$bricolour."overwriting".$stdcolour." the prior backup.\n";
+}
+
+if(defined($named_user[0])) {
+	print "\nnamed runs as".tabto(20).$dimcolour.$named_user[0].$stdcolour;
+}
+if(!defined($named_user[0]) || $named_user[0] eq "") {
+	print $bricolour."*UNDEFINED*".$stdcolour." (define variable ".$dimcolour."named_user[0]".$stdcolour." in stapler.conf, previously called ".$dimcolour."runas".$stdcolour.")\n";
+	$ErrorCondition++;
+}
+if(defined($www_user[0])) {
+	print "\nWeb server runs as".tabto(20).$dimcolour.$www_user[0].$stdcolour;
+}
+if(!defined($www_user[0]) || $www_user[0] eq "") {
+	print $bricolour."*UNDEFINED*".$stdcolour." (define variable ".$dimcolour."www_user[0]".$stdcolour." in stapler.conf)\n";
+	$ErrorCondition++;
+}
+print "\n\n";
+
+if($ErrorCondition ne 0) {
+	printf "%d errors noted above.  Please correct and try again.\n", $ErrorCondition;
+	exit $ErrorCondition;
+}
+
+# Extract serial number from existing domain zone file (if exists),
+#	increment by one, and prompt user for new serial number.
+
+print "TTL $ttl[0]		Current serial no. ";
+my $serno = undef;
+&makeserialnumber;
+
+print "\t".$inverted."DRY RUN".$stdcolour if($options{n} || $options{dryrun});
+print "\t".$inverted."TEMP+DRY RUN".$stdcolour if($options{nn} || $options{tmp});
+print "\t".$inverted."DEBUG".$stdcolour if($options{d} || $options{debug});
+print "\nNew serial number or ^C to abort  [$serno]	";
+if($options{b} || $options{batch}) {
+	print "\n\tBatch mode; using serial no. $serno\n\n";
+} else {
+	my $newserno = <STDIN>;
+	chomp($newserno);
+	if($newserno ne ""){
+		$serno = $newserno;
+	}
+}
+#print "\n-----------------------------------------------------------------------------\n";
+print "\n";
+
+#|------------------------------------------------------------------------------
+&createlocalzone;															#|Create local zone files
+#|------------------------------------------------------------------------------
+my $dmaster = "$datadir/named.master";
+my $dslave  = "$datadir/named.slave";
+
+if(!-e "$confdir[0]/named.conf.include"){
+	print("touch $confdir[0]/named.conf.include\n");
+	system("touch $confdir[0]/named.conf.include");
+	system("chown $named_user[0] $confdir[0]/named.conf.include");
+}
+if(!-e "$confdir[0]/rndc.key" || !-e "$confdir[0]/rndc.conf") {
+	system("rndc-confgen -k $rndckey > $confdir[0]/rndc.conf");
+	system("grep -A3 ^key $confdir[0]/rndc.conf > $confdir[0]/rndc.key");
+}
+system("chown $named_user[0] $confdir[0]/rndc.key");
+system("chmod 600 $confdir[0]/rndc.key");
+&makenamed;																	#|Create named.conf & write global parameters
+#
+# Write local zone and root hints definitions to named.conf
+#
+my $zone127 = "$pridir/127.zone";
+my $localzone = "$pridir/localhost.zone";
+my @rootcachefiles = ("named.cache", "root.cache","named.root","root.hint","named.ca");
+$ix = 0;
+do {
+	$rootcache = $rootcachefiles[$ix];
+	$fullroot = "$zonedir/$rootcache";
+	$ix = $ix+1;
+} until(-e $fullroot);													#|if not found, will stop when $fullroot is the directory name
+if(length($rootcachefiles[$ix]) == 0) {
+	$rootcache = "named.cache";											#|None exists, set default
+}
+print(MASTER "
+//------------[ Zone Definitions ]------------
+
+zone \".\" IN {
+	type hint;
+	file \"$rootcache\";
+};
+zone \"localhost\" IN {
+	type master;
+	file \"$localzone\";
+	allow-update { none; };
+	notify no;
+};
+zone \"127.in-addr.arpa\" IN {
+	type master;
+	file \"$zone127\";
+	allow-update { none; };
+	notify no;
+};
+//------------[ stapler:".__LINE__.": The above are always master, never slave. ]------------\n\n");
+#|- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Now write the domain names into named.conf
+# and also store in lines in DomLineArray for use in processIPs and anywhere else needed
+
+my $dix = 0;
+open(DOMLIST, "<$domainlist") or die("$domainlist file not found.");
+while($thisline = <DOMLIST>){
+	chomp($thisline);
+	if(index($thisline, "#") == 0) {
+		print(MASTER "$thisline\n");
+	}
+	if ($thisline =~ /SPF|TXT|DKIM|DNSSEC/) {						#|Leave SPF, TXT, DKIM, and DNSSEC records intact
+		$thisline =~ tr/ //d;											#|- remove spaces from all others
+	}
+	$thisline =~ tr/\t/\t/s;											#|Replace multiple TABs with a single TAB
+	@domline = split/\t/, $thisline;									#|Split the record into fields by TABs
+#	$DomLineArray[$dix++] = $thisline;								#|Store the entire line (all fields)
+	next if(substr($thisline,0,1) eq "#" || length($thisline) == 0);
+	$dix++;																	#|Count number of domains
+	$domainlinecount{$domline[0]}++;
+	&debugWrite(__LINE__, "Tally ".$domline[0]." in domainlinecount (".$domainlinecount{$domline[0]}.")");
+	if(!$domainswritten{$domline[0]}) {
+		print MASTER <<"EOT";
+zone "$domline[0]" IN {
+	type master;
+	allow-query { any; };
+	allow-transfer { xfer; };
+	auto-dnssec maintain;
+	inline-signing yes;
+	file "$pridir/$domline[0]";
+};
+
+EOT
+		$domainswritten{$domline[0]} = 1;
+	}
+	&processDomains;
+}
+close DOMLIST
+	or warn $! ? "Error closing DOMLIST: $!"
+					: "Exit status $? ";
+if($dix == 0) {
+	print "\n\n".$inverted."===> NB: ".$errcolour." No domains are defined in $domainlist${dimcolour} (in ".__LINE__.")${stdcolour}\n\n";
+}
+#
+# Secondary list has three fields, we want the first two (server and master NS IP)
+#
+$sdix = 0;																	#|Secondary domains index
+my $errors = 0;
+if($secondlist) {
+	open(DOMLIST, "<$secondlist") or die("$secondlist file not found.");
+	while($thisline = <DOMLIST>){
+		chomp($thisline);
+		if(index($thisline, "#") == 0) {
+			print(MASTER "$thisline\n");
+		}
+		$thisline =~ tr/ //d;											#|Remove spaces
+		$thisline =~ tr/\t/\t/s;										#|Replace multiple TABs with a single TAB
+		next if(substr($thisline,0,1) eq "#" || length($thisline) == 0);
+		@domline = split/\t/, $thisline;								#|Split the record into fields by TABs
+		if(defined $domainswritten{$domline[0]}) {
+			print "\n${errcolour}Error${stdcolour}:  Domain ".$domline[0]." is defined as both primary and secondary.\n";
+			$errors++;
+		}
+		$MasterNS[$sdix] = $domline[1];
+		$SlaveDoms[$sdix++] = $domline[0];							#|Store this domain in SlaveDoms array
+		print MASTER <<"EOT";
+zone "$domline[0]" IN {
+	type slave;
+	file "$secdir/$domline[0]";
+	masters { $domline[1]; };
+	allow-query { any; };
+	allow-transfer { none; };
+	allow-notify { $domline[1]; };
+	notify no;
+};
+
+EOT
+	}
+}
+close DOMLIST or warn $! ? "Error closing secondary DOMLIST: $!" : "Exit status $? ";
+if($errors gt 1) {
+	print "\n".$errors." error(s) need to be corrected.\n";
+	exit;
+}
+
+# ---------------------------------------------------------------------
+
+# Open the list(s) of local IP addresses
+#	- unused IPs in your address block need not be listed
+#	- ASCII file
+#	- one record per line
+#	- two fields per record, separated by white space
+#	  IP suffix followed by machine name (e.g., "1 router")
+#	(see $baseIP above for the IP prefix)
+
+#$ix = 0;
+#do {
+#	&processIPs($IPfiles[$ix], $ix++);
+#} until (!defined $IPfiles[$ix]);
+close MASTER;
+system("chown $named_user[0] $dmaster");
+system("chown $named_user[0] $dslave");
+$numberoffiles = $ix-1;
+
+# ---------------------------------------------------------------------
+# Process CNAME aliases in aliases.stapler
+#
+# Aliases file has three fields per record, TAB delimited
+# 1. domain name	(e.g., ispl.ca)
+# 2. alias			(e.g., webmail)
+# 3. server name on which this alias resides (e.g., www)
+#
+# The zone file for each server name is opened for append as the
+#	lines of the alias file are processed.
+
+&processCNAMEs;
+
+# ---------------------------------------------------------------------
+# Make slave named.conf file by parsing the master file.
+
+$msg = "Saving $datadir/named.slave";
+&checkbox($msg);
+open(CONF, "<$dmaster") or die("Can't open $dmaster for reading");
+open(COUT, ">$dslave") or die("Can't open $dslave for writing");
+my $pastmod = 0;
+my $lineno = 0;
+my $ismine = 0;
+my $is_zone = 0;
+my $is_mstr = 0;
+my $in_zone = 0;
+my $indent = 0;
+while(!eof(CONF)) {
+	$aline = <CONF>;
+	$lineno++;
+	$indent += (index($aline, "{") >= 0);
+	$indent -= (index($aline, "}") >= 0);
+	if($indent == 0) {				#|End of a section?
+		$ismine = 0;					#|- reset these flags
+		$is_slave = 0;
+		$in_zone = 0;
+	}
+	$in_zone = $in_zone || ($aline =~ m/^zone/);
+	$is_mstr = (index($aline, "type master") >= 0);
+	$is_slave = $is_slave || (index($aline, "type slave") >= 0);
+	$notify = (index($aline, "notify yes") >= 0);
+	if($ismine) { 						#|A local zone?
+		if($notify) {
+			print(COUT "\tnotify no;");
+		} else {
+			print(COUT $aline);			#|- leave as-is
+		}
+	} else {
+		if($is_mstr) {				#|It's a master declaration?
+			print COUT <<"EOT";
+	type slave;
+	masters { $ns1IP[0]; };
+	allow-query { any; };
+	allow-transfer { none; };
+	allow-notify { $ns1IP[0]; };
+	notify no;
+
+EOT
+#			print(COUT "\ttype slave;\n\tmasters { $ns1IP[0]; };\n\tallow-query { any; };\n\tallow-transfer { none; };\n\tallow-notify { $ns1IP[0]; };\n\tnotify no;\n");
+		}
+		elsif($notify) {
+			print(COUT "\tnotify no;\t\t\t\t\t#|Slaves do not notify\n");
+		} else {
+			$not_allow = (index($aline, "allow-query")<0 && index($aline, "allow-transfer")<0); #These do NOT exist?
+			if( !$in_zone || ($in_zone && $not_allow) || $is_slave ) {
+				if(index($aline, $pridir."/") gt 0) {
+					$aline =~ s/$pridir/$secdir/;
+				}
+				print(COUT $aline);
+			}
+		}
+	}
+	$is_zone = (index($aline,"zone") >= 0);				#|Zone definition line?					index returns -1 if not found
+	$islocal = index($aline,"localhost",1)>0;				#|Look for localhost						index returns -1 if not found, so check if >0
+	$is127 = index($aline,"127.in-addr",1)>0 || index($aline,"127.zone",1)>0 || index($aline,"127.0.0.",1)>0; #|index() returns -1 if not found
+	if($is_zone && $ismine == 0) {
+		$ismine = ($islocal || $is127); 
+	}
+}
+close COUT;
+close CONF;
+&checkit;
+&createcache;														#|Create named.cache
+if(-e "$confdir[0]/named.conf") {									#|Do we have an existing named.conf?
+	$msg = "Rename $confdir[0]/named.conf $confdir[0]/named.backup";
+	&checkbox($msg);
+	$result = rename("$confdir[0]/named.conf", "$confdir[0]/named.backup");
+	&checkit;
+	if($result == 1) {
+		$msg = "Moving $dmaster to $confdir[0]/named.conf";
+		&checkbox($msg);
+		$result = rename($dmaster, "$confdir[0]/named.conf");
+		$msg = "";
+	} else {
+		$msg = "\nMaster named.conf file is saved as $dmaster (because backup failed)\n - to use it ${bricolour}mv $dmaster $confdir[0]/named.conf${stdcolour}m\n - then ${bricolour}rcnamed reload${stdcolour}\n";
+	}
+	&checkit($msg);
+	} else {
+	$msg = "Install ".$confdir[0]."/named.conf";
+	&checkbox($msg);
+#
+# As of 2010 using "rename" no longer works to move the conf file, but copy does work.
+#
+	$result = copy($dmaster, "$confdir[0]/named.conf");
+	if($result) {
+		$msg = "OK";
+	} else {
+		$msg = "FAILED to copy $dmaster to $confdir[0]/named.conf";
+	}
+	&checkit($msg);
+}
+if(-e "/usr/sbin/named-checkconf") {
+	&checkbox("Running named-checkconf");
+	if(system("/usr/sbin/named-checkconf -z $confdir[0]/named.conf") != 0) {
+		print "${errcolour}Fix errors above and try again.${stdcolour}\n";
+		exit;
+	}
+}
+
+# Step through DNS servers defined in @slavedns and copy the slave configuration
+# file to any slave servers.
+my $output = `ip addr show|awk -F'[ /]+' '/inet / {print \$3}'`;	#|Grab all Internet addresses on all interfaces
+my $addcount = (my @localaddrs = split/\n/, $output);
+my $thisbox;
+if(@slavedns[$#slavedns]) {
+	foreach my $dns (@slavedns) {
+		next if($dns eq "");
+		my $itsme = 0;
+		foreach $thisbox (@localaddrs) {
+			$itsme = $itsme || ($thisbox eq $dns);								#|Does this address match any of the addresses of this box?
+		}
+		next if($itsme);																#|Skip to the next DNS address if this one is localhost
+		if(!defined($remotecopy[0]) || $remotecopy[0] eq "") {
+			$remotecopy[0] = "rsync -a --backup --backup-dir=/tmp";
+			# NB: Without the -a flag to rsync the remote file will end up
+			# being owned by root:root rather than named:named, which can
+			# cause 'rndc reload' to fail.
+		}
+		my $copycmd = "$remotecopy[0] $datadir/named.slave $dns:$confdir[0]/named.conf > /dev/null";
+		#my @dnscmd = ("rndc", "-s", $dns, "reload");
+		my $dnscmd = "rndc -s $dns reload";
+		if($options{n} || $options{dryrun} || $options{nn} || $options{tmp}) {
+			print __LINE__." ${errcolour}Dry run did not:  $copycmd${stdcolour}\n";
+			print __LINE__." ${errcolour}Dry run did not:  rndc -s $dns reload${stdcolour}\n";
+		} else {
+			$msg = "Copy ${bricolour}named.slave${stdcolour} to ".$bricolour.$dns.$stdcolour;
+			&checkbox($msg);
+			if(system($copycmd)==0) {
+				&checkit("named.conf successfully transferred");
+				$msg = "Attempting ".$bricolour.$dnscmd.$stdcolour;
+				&checkbox($msg);
+				my $rndcResult = `timeout 5 $dnscmd 2>/dev/null`;
+				if($? == 0) {
+					&checkit($rndcResult);
+				} else {
+					print("${errcolour}	Failed $?: $dnscmd ${stdcolour}\n");
+					# Perhaps a permission error, so try to change ownership and retry rndc reload.
+					system("ssh ".$dns." 'chown named:named ".$confdir[0]."/named.conf'");
+					$msg = "Re-trying ".$bricolour.$dnscmd.$stdcolour;
+					&checkbox($msg);
+					my $rndcResult = `timeout 5 $dnscmd 2>/dev/null`;
+					if($? == 0) {
+						&checkit($rndcResult);
+					} else {
+						print("${errcolour}	Failed $?: $dnscmd ${stdcolour}\n");
+					}
+				}
+			} else {
+				print "${errcolour}	Transfer of named.conf to secondary DNS FAILED${stdcolour} (only matters for new domains)\n";
+				print "${errcolour}	You must re-start NAMED manually on ".$dns."${stdcolour}\n";
+			}
+		}
+	}
+}
+
+if($options{n} || $options{dryrun} || $options{nn} || $options{tmp}) {
+	print __LINE__." ${errcolour}Not reloading local name server due to -n flag.${stdcolour}\n";
+} else {
+	$msg = "Is named running on this server?";
+	&checkbox($msg);
+	my $dns_running = `rndc status 2>/dev/null|tail -n1`;
+	if($dns_running eq "") {
+		&errorit("");
+		&showerror("DNS is not running on this box.", $NOTICE, __LINE__);
+	} else {
+		&checkit($dns_running);
+		$msg = "Now doing ${bricolour}rndc reload${stdcolour} to put changes into effect";
+		&checkbox($msg);
+		my $reload = `rndc reload 2>/dev/null`;
+		if($reload =~ "success") {
+			&checkit($reload);
+		} else {
+			&showerror("Failed $! - you must re-start NAMED manually.", $ERR, __LINE__);
+		}
+	}
+}
+&showerror("Done", $NOTICE, __LINE__);
+
+#|-------------------------------------------------------------------------------------------
+#==============================================================================| SUBROUTINES
+
+sub makeserialnumber{
+	($sec, $min, $hr, $moday, $mo, $yr, $weekday, $yrdate, $dst) = localtime(time);
+	$newdate = sprintf("%4d%02d%02d", 1900+$yr, ++$mo, $moday);
+	$serialfilename = "$zonedir/$pridir/$domainname[0]";
+	$lineno = 0;
+	if(open(EG, "<$serialfilename")) {
+		do {
+			$serno = <EG>;
+		} until(substr($serno, 0, 1) eq "@" or ++$lineno > 20);		#|Read to '@' or stop after 20 lines
+		$serno = <EG>;																#|Advance to next line
+		close EG;
+		chomp($serno);
+		$serno =~ s/[ \t]+//;													#|Remove leading white space
+		$serno =~ s/[ \t]*;.*//;												#|Remove from semi-colon onward
+		print "$serno (using $domainname[0])";								#|Print existing s/n
+		$serno++;																	#|Advance one
+		$dateportion = substr($serno,0,8);									#|Extract the date
+		if($dateportion != $newdate && $newdate > $dateportion) {	#|Did the date change and is it later than the one on-file?
+			$serno = $newdate."00";												#|- if so, use new date
+		}
+	} else {
+		print "(none in $serialfilename)";
+		$serno = $newdate."00";
+	}
+	$temp = `grep ^$domainname[0] $domainlist`;
+	if(chomp($temp) eq "") {
+		print "\n\n${errcolour}Error${stdcolour}: $domainname[0] is not defined in $domainlist.\n\n";
+		exit;
+	}
+	return($serno);
+}
+
+
+#|Create named.conf configuration file
+sub makenamed{
+	my $pidfile = "/var/run/named";									#|Check if this dir exists
+	if(-e $pidfile) {
+		$pidfile = "/var/run/named/named.pid";
+	} else {
+		$pidfile = "/var/run/named.pid";
+	}
+	my $msg = "Writing $confdir[0]/named.conf";
+	&checkbox($msg);
+	$msg = "";
+	open(MASTER, ">$dmaster") or die("Can't open $dmaster for writing.");
+	my $recursionlist = &makerecursionlist;
+	$xferlist = &makexferlist;
+	my $server_name = `hostname -f`;
+	#$xferlist =~ s/;\s/;\n\t/g;
+	my $right_now = localtime;
+	my $forwarders = "";
+	my $no_fwds = scalar(@fwd);
+	if($no_fwds && length($fwd[0])) {
+		$forwarders .= "forward first;\n";
+		$forwarders .= "forwarders {\n";
+		foreach(@fwd) {
+			$forwarders .= "\t\t$_;\n";
+		}
+		$forwarders .= "};\n";
+	} else {
+		$warnmsg .= "Notice:  No forwarders are defined.  Is that expected?  Define \@fwd in stapler.conf if desired.\n";
+	}
+	print MASTER <<"EOT";
+// vim: ts=4:sw=4:
+// File:       $confdir[0]/named.conf for BIND v9
+// Created:    $right_now
+// Generator:  Stapler $version $updated
+// Author:     A Babudro www.ispltd.com
+// Server:     $server_name
+//
+// NB:	This file is overwritten each time Stapler is run.
+//	Put custom settings in named.include.
+
+acl trusted {
+	$recursionlist
+};
+acl xfer {
+	$xferlist
+};
+options {
+	directory       "$zonedir";
+	key-directory   "$zonedir/keys/";
+	pid-file        "$pidfile";
+	version			none;			#|Version reported by a query of version.bind with type TXT and class CHAOS.
+	hostname		none;			#|Name reported by a query of hostname.bind with type TXT and class CHAOS to identify anycast servers.
+	server-id		none;			#|ID reported by a query of ID.SERVER with type TXT and class CHAOS to identify anycast servers.
+	#|Status file paths are relative to chroot jail
+	dump-file   	"$statusdir/cache_dump.db";
+	statistics-file "$statusdir/named_stats.txt";
+	memstatistics-file "$statusdir/named_mem_stats.txt";
+	recursing-file  "$statusdir/named.recursing";
+	secroots-file   "$statusdir/named.secroots";
+
+	listen-on-v6 { any; };				#|'any' or 'none' or a list of addresses
+	#listen-on port 53 { 127.0.0.1; };	#|List of local network i/fs to listen. Port is optional. Default is to listen on all interfaces, port 53.
+
+	allow-query {
+		/* Accept queries only from "trusted" ACL.
+		 * Below we will allow anyone to query our master zones.
+		 * This prevents becoming a free DNS server.
+		 */
+		trusted;
+	};
+
+	allow-query-cache {
+		/* Use the cache for the "trusted" ACL. */
+		trusted;
+	};
+
+	allow-recursion {
+		/* Only trusted addresses are allowed to use recursion. */
+		trusted;
+	};
+
+	allow-transfer {
+		/* Zone tranfers are denied by default. */
+		xfer;
+	};
+
+	allow-update {
+		/* Don't allow updates, e.g. via nsupdate. */
+		none;
+	};
+
+	/*
+	* If you've got a DNS server around at your upstream provider, enter its
+	* IP address here, and enable the line below. This will make you benefit
+	* from its cache, thus reduce overall DNS traffic in the Internet.
+	*
+	* Uncomment the following lines to turn on DNS forwarding, and change
+	*  and/or update the forwarding ip address(es):
+	*/
+
+	$forwarders
+
+	max-cache-size 30%;		// maximum RAM -- disable if using older BIND that lacks this feature
+//	max-cache-ttl 900;		// limit cached record to a 900s TTL
+//	max-ncache-ttl 90;		// limit cache neg. resp. to a 90s TTL
+
+	dnssec-validation no;
+
+	/* if you have problems and are behind a firewall try this: */
+	//query-source address * port 53;
+
+	notify yes;					#|If notify is yes (default) notify messages are sent to other name servers when the the zone data is changed. A separate notify can be added to each zone definition.
+};
+
+logging {
+	channel default_log {
+		file "/var/log/named/named.log" versions 5 size 30M;
+		print-time yes;
+		print-severity yes;
+		print-category yes;
+	};
+	channel query_logging {
+		file "/var/log/named/query.log" versions 3 size 100M;
+		print-time yes;                 // timestamp log entries
+		severity debug 3;
+	};
+	category queries {
+		query_logging;
+	};
+
+	category default { default_log; };
+	category general { default_log; };
+};
+
+# NB: rndc.key file must be owned by BIND's UID (e.g., named), otherwise it will complain
+#	that it cannot find the file.
+#
+include "$confdir[0]/rndc.key";
+controls {
+	inet * port 953 allow { trusted; } keys { "$rndckey"; };
+};
+
+
+zone com IN { type delegation-only; };		#|void the Verisign wildcard nonsense
+zone net IN { type delegation-only; };		#|void the Verisign wildcard nonsense
+#
+# an example of logging all queries
+#
+#logging {
+#       # Log queries to a file limited to a size of 100 MB.
+#	channel query_logging {
+#		file "/var/log/named/query.log" versions 3 size 100M;
+#		print-time yes;                 // timestamp log entries
+#	};
+#	category queries {
+#		query_logging;
+#	};
+#
+#       # Or log this kind alternatively to syslog.
+#       channel syslog_queries {
+#               syslog user;
+#               severity info;
+#       };
+#       category queries { syslog_queries; };
+#
+#       # Log general name server errors to syslog.
+#       channel syslog_errors {
+#               syslog user;
+#               severity error;
+#       };
+#       category default { syslog_errors;  };
+#
+#       # Don't log lame server messages.
+#       category lame-servers { null; };
+#};
+include "$confdir[0]/named.conf.include";		#|A file to hold settings not touched by Stapler
+
+EOT
+
+	# CentOS/RHEL/OEL have extra include files that Gentoo does not
+	if(!-e "/etc/named.rfc1912.zones") {
+		print MASTER '#';
+	}
+	print MASTER 'include "/etc/named.rfc1912.zones";		# RHEL/CentOS'."\n";
+	if(!-e "/etc/named.root.key") {
+		print MASTER '#';
+	}
+	print MASTER 'include "/etc/named.root.key";				# RHEL/CentOS'."\n";
+
+	&checkit($msg);
+	&showerror($warnmsg, $WARN, __LINE__);
+}
+
+
+
+#|Write the in-addr.arpa (reverse lookup) entry in named.conf
+#|The ZONEFILE, IPLIST, and MASTER files must all be open.
+sub write_reverse_addr(\$@) {
+	if($rIP eq "" || $baseIP eq "dynamic") {
+		return;
+	}
+	my $thisfile = "$pridir/$fileprefix[0].$baseIP";
+	&debugWrite(__LINE__, "Propose $thisfile");
+	if(substr($fileprefix[0],-1) eq ".") {
+		$thisfile = "$pridir/$fileprefix[0]" . $baseIP;
+		&debugWrite(__LINE__, "-- correct to $thisfile because last char of [".$fileprefix[0]."] is [".substr($fileprefix[0],-1)."]");
+	}
+	print MASTER <<"EOT";
+#|--------------------------
+# Reverse lookups
+#
+zone "$rIP.in-addr.arpa" IN {
+	type master;
+	file "$thisfile";
+	allow-query { any; };
+	allow-transfer { xfer; };
+	auto-dnssec maintain;
+	inline-signing yes;
+};
+
+EOT
+
+	&debugWrite(__LINE__, "Wrote $thisfile");
+# ------------------------------------------------------------------------------
+# Create the reverse IP address in-addr-arpa zone file (e.g., db.63.102.68 for
+# the 63.102.68.0/24 network)
+
+	$zonefilename = "$zonedir/$thisfile";
+	$ZoneFH = &write_base_zonefile($zonefilename, 1);
+	#|Now loop through all the address suffixes in the IPs file
+	#|Append an entry for each address in the in-addr-arpa and domain zone files
+	#|	as well as in the named.conf file.
+	#
+	#|The IP list files contain two fields per record:  IP address
+	#|	(the portion not defined in $baseIP) followed by white-space
+	#|	and the machine name.
+	#|Addresses may be repeated; the last iteration will be the machine
+	#|	name used in the zone file.  Put aliases first; the real
+	#|	machine name last.
+	#
+	seek(IPLIST,0,0);
+	my $lastIP = "";
+	my $thisIP = "";
+	my $fmt = "%-24s%-8s%-8s%-32s %s\n";
+	while ($thisIP = <IPLIST>){
+		chomp($thisIP);
+		next if(substr($thisIP,0,1) eq "#" || length($thisIP) == 0);
+		$thisIP =~ tr/ /\t/s;								#|Replace multiple spaces with a single TAB
+		$thisIP =~ tr/\t/\t/s;								#|Replace multiple TABs with single TAB between fields
+		my @iprec = split/\t/, $thisIP;					#|Split the record into fields
+		if(@iprec > 1) {										#|Does this rec have two fields?
+			my @oct = split/\./, $iprec[0];
+			my $rthisIP = "";
+			for(my $ix = @oct; $ix > 0; $ix--) {
+				$rthisIP .= $oct[$ix-1];
+				$rthisIP .= "." if($ix>1);
+			}
+			printf $ZoneFH $fmt, $rthisIP, "IN", "PTR", $iprec[1].".".$domainname[0].".", "";
+			$lastIP = $thisIP;
+		}
+	}
+	close $ZoneFH;
+}
+
+sub write_base_zonefile(\$@) {
+	my($filename, $reverse) = @_;
+	open(my $ZFILE, ">$filename") or die("Can't open $filename for writing");
+	print($ZFILE "\$TTL $ttl[0]\t\t\t; Global TTL\n; vim:ts=8:sw=8:\n");
+	if($reverse) {
+		print($ZFILE "; $domainname[0] in-addr-arpa zone master file		(Stapler - A Babudro ispltd.org)\n");
+	} else {
+		print $ZFILE "; Zone file for $thisdomain (created by Stapler ispltd.org)\n";
+	}
+	printf $ZFILE "%-24s%-8s%-8s%s. %s. (\n", "@", "IN", "SOA", $ns[0], $email[0];
+	printf $ZFILE "%-24s%-16s%-32s %s\n", " ", " ", $serno, "; Serial no.";
+	printf $ZFILE "%-24s%-16s%-32s %s\n", " ", " ", $refresh[0], "; Refresh slaves";
+	printf $ZFILE "%-24s%-16s%-32s %s\n", " ", " ", $retry[0], "; Retry";
+	printf $ZFILE "%-24s%-16s%-32s %s\n", " ", " ", $expire[0], "; Expire";
+	printf $ZFILE "%-24s%-16s%-32s %s\n", " ", " ", $minttl[0]." )", "; Minimum TTL in others' caches";
+
+	$no_ns = @ns;
+	for($nsno=0; $nsno<$no_ns; $nsno++) {
+		if(defined($ns[$nsno]) && $ns[$nsno] ne "") {
+			printf $ZFILE "%-24s%-8s%-8s%-32s %s\n", " ", "IN", "NS", $ns[$nsno].".", "; DNS No. ".($nsno+1);
+		}
+	}
+	# Return the file handle for further writing
+	return $ZFILE;
+}
+
+sub write_mx_lines {
+	my $mxs = @mail;
+	if(@altNam gt $mxs) {
+		$mxs = @altNam;
+	}
+	my $fmt = "%-24s%-8s%-8s%-32s %s\n";
+	for(my $mxno = 0; $mxno < $mxs; $mxno++) {
+		my ($mx, $addr) = &what_is_mx($mxno);
+		$priority = 10+($mxno*10);
+		printf $DomFH $fmt, " ", "IN", "MX ".$priority, $mx, "; Mail Exchanger No. ".($mxno+1) if($mx ne "");
+		printf $fmt, __LINE__, "IN", "MX ".$priority, $mx, "; Mail Exchanger No. ".($mxno+1) if($mx ne "" && ($options{d} || $options{debug}));
+	}
+	&debugWrite(__LINE__, "finished checking $mxs MX records.");
+}
+
+
+sub what_is_mx(\$@) {
+	my ($mxno) = @_;
+	my $mx = "";
+	my $addr = "";
+	if(defined($altNam[$mxno]) && $altNam[$mxno] ne "") {
+		&debugWrite(__LINE__, "Alt MX $mxno ".$altNam[$mxno]);
+		if($altNam[$mxno] ne "none") {
+			$mx = $altNam[$mxno];
+		}
+		if($altAdd[$mxno] ne "none") {
+			# The address should ONLY be defined here IFF it is within the same subnet.
+			# I really should do some validation here...
+			$addr = $altAdd[$mxno] if(defined($altAdd[$mxno]));
+		}
+	} else {
+		&debugWrite(__LINE__, "Check for regular MX $mxno");
+		if(defined($mail[$mxno]) && $mail[$mxno] ne "") {			#|- have a standard MX for this mxno?
+			$mx = $mail[$mxno];
+			&debugWrite(__LINE__, "MX $mx");
+			# address for this one must be defined in the zone file for its subnet, not here
+		}
+	}
+	$numdots = () = $mx =~ /\.\w+/g;
+	&debugWrite(__LINE__, "$mx has $numdots dots.");
+	if($numdots gt 1) {														#|Is this a FQDN?
+		$mx .= ".";																#|- put a dot on the end to prevent adding the domain name a second time.
+	}
+	return($mx, $addr);
+}
+
+
+#|Process one line from the domain.primary file.  Create the zone file,
+#|if not yet created, write the header if not yet written, and write out
+#|a TXT, SPF, DKIM, or DNSSEC record if it is included on the line.
+sub processDomains(\$@) {
+	$thisdomain = $domline[0];
+	&debugWrite(__LINE__, "processing $thisdomain");
+	$altWWW = $domline[1];							#|IP address or keyword: std none SPF TXT DKIM DNSSEC
+	if(!defined $domline[1] || $domline[1] =~ /SPF|TXT|DKIM|DNSSEC/) {
+		undef @altNam;
+		undef @altAdd;
+	} else {
+		$altNam[0] = $domline[2];					#|Alt MX1, SPF/TXT string, or DKIM Selector
+		$altNam[1] = $domline[4];					#|Alt MX2
+		$altNam[2] = $domline[6];					#|Alt other 1
+		$altNam[3] = $domline[8];					#|Alt other 2
+		$altAdd[0] = $domline[3];					#|Alt MX1 IP
+		$altAdd[1] = $domline[5];					#|Alt MX2 IP
+		$altAdd[2] = $domline[7];					#|Alt other 1 IP
+		$altAdd[3] = $domline[9];					#|Alt other 2 IP
+	}
+
+	$domfilename = "$zonedir/$pridir/$thisdomain";
+	if($domainlinecount{$thisdomain} eq 1) {
+		$DomFH = &write_base_zonefile($domfilename, 0);		#|- create the file and write header lines
+		&debugWrite(__LINE__, "write MX records for $thisdomain");
+		&write_mx_lines;												#|- write mail exchanger records
+		&debugWrite(__LINE__, "write localhost record for $thisdomain");
+		printf $DomFH "\n%-24s%-8s%-8s%s\n\n", "localhost"," ","A","127.0.0.1";
+		&debugWrite(__LINE__, "write base www record for $thisdomain");
+		$gotAlts = &write_www_rec;									#|Write the base and www entries, as applicable.
+		my $mxs = @mail;
+		if(@altNam gt $mxs) {
+			$mxs = @altNam;
+		}
+		for($mxno=0; $mxno < $mxs; $mxno++) {						#|Write the A records for Alternate MXs
+			my ($mx, $addr) = &what_is_mx($mxno);
+			if($mx ne "" && $addr ne "") {							#|Does the A record belong in this zone file?
+				#print $DomFH $mx.&tabto($TABstop[4])."A	$addr		; Alt setting $mxno\n";
+				printf $DomFH "\n%-24s%-8s%-8s%s\t; Alt setting %s\n\n", "$mx"," ","A","$addr",$mxno;
+				$gotAlts = 1;
+			}
+		}
+		if($gotAlts == 1) { print $DomFH "\n"; }
+	} else {
+		open($DomFH, ">>$domfilename") or die("Can't open $domfilename for appending.");
+	}
+
+	if(defined($altWWW)) {
+		if($altWWW =~ /^SPF/) {
+			printf $DomFH "%-24s%-8s%-8s%s\n", $thisdomain.".", "IN", "TXT", $domline[2];
+			printf $DomFH "%-24s%-8s%-8s%s\n", $thisdomain.".", "IN", "SPF", $domline[2];
+			$altNam[0] = "";						#|Do not write an A record below
+		}
+		if($altWWW =~ /^TXT/) {
+			printf $DomFH "%-24s%-8s%-8s%s\n", $thisdomain.".", "IN", "TXT", $domline[2];
+			$altNam[0] = "";						#|Do not write an A record below
+		}
+		if($altWWW =~ /^DKIM/) {
+			if($domline[3] ne "") {
+				printf $DomFH "%-24s%-8s%-8s%s\n", $domline[2], "IN", "TXT", $domline[3];
+			} else {
+				die "\n${errcolour}ERROR: DKIM line is invalid.  ${stdcolour}Make sure you use TABs between fields in domain.primary.\n";
+			}
+			$altNam[0] = "";												#|Do not write an A record below
+		}
+	}
+	print $DomFH "\n" if($domainlinecount{$thisdomain} gt 1);
+	close $DomFH;
+
+	# Now erase any *.jnl and *.jbk files for the domain so that BIND will re-create them.
+	# There must be a better way, yes?
+
+
+
+	&debugWrite(__LINE__, "Is reverseMapDone eq 0 for $thisdomain ?  [$reverseMapDone]");
+
+	$ix = 0;
+	do {
+		&debugWrite(__LINE__, "$ix - Process A records for $thisdomain");
+		&processIPs($IPfiles[$ix], $ix++);
+	} until (!defined $IPfiles[$ix]);
+	$reverseMapDone = 1;
+}
+
+
+#|Write all A records (machine-address pairs) to each domain file
+sub processIPs(\$@) {
+	($thisIPfile, $counter) = @_;
+	$basename = fileparse($thisIPfile);
+	$msg = sprintf($stdcolour."IP List:  %-11s %s ", $basename, $thisdomain);
+	if($domainlinecount{$thisdomain} gt 1) {
+		&debugWrite(__LINE__, "$thisdomain has already been processed (superfluous line in domain.* list?)");
+		return;
+	}
+	&checkbox($msg);
+	&debugWrite(__LINE__, "Open $thisIPfile for reading");
+	open(IPLIST, "<$thisIPfile") or die("$thisIPfile can't be opened for reading.");
+	&deriveNetblock($thisIPfile);										#|get netblock and reverse IP for this address
+	if($reverseMapDone eq 0) {
+		&debugWrite(__LINE__, "Write reverse address entry in named.conf for $baseIP");
+		&write_reverse_addr;													#|Write in-addr-arpa entries in the db.* file
+	}
+	$domfilename = "$zonedir/$pridir/$thisdomain";
+	open($DomFH, ">>$domfilename") or die("Can't open $domfilename for append.");
+	&debugWrite(__LINE__, "going to write $thisdomain into $domfilename");
+	write_IP_addresses(\*IPLIST, $thisdomain);
+	close $DomFH;
+	if(-e $domfilename) {
+		system("chown $named_user[0] $domfilename");
+	}
+	close IPLIST;
+	if($baseIP ne "dynamic") {
+		my $msg = "Base address ".$bricolour.$baseIP.$stdcolour;
+		&checkit($msg);
+	} else {
+		&checkit("");
+	}
+	&showerror($warnmsg, $WARN, __LINE__);
+	&debugWrite(__LINE__, "Setting ownership of ${bricolour}$domfilename${stdcolour}");
+	system("chown $named_user[0] $domfilename");
+}
+
+
+sub write_IP_addresses(\$@) {
+	my($fh, $thisdomain) = @_;
+	my $thisIP = undef;
+	seek($fh,0,0);															#|Rewind list of machine IP addresses
+	#&debugWrite(__LINE__, "write_IP_addresses for $thisdomain");
+	while ($thisIP = <$fh>) {
+		chomp($thisIP);
+		next if(index($thisIP, "#") == 0);							#|this is a comment line?
+		if(index($thisIP, "#") > 1) {									#|is there a comment following IP address?
+			$stopat = index($thisIP, "#");
+			$thisIP = substr($thisIP,0,--$stopat);					#|grab the address up to the comment
+		}
+		$thisIP =~ tr/ /\t/s;											#|Replace multiple spaces with a single TAB
+		$thisIP =~ tr/\t/\t/s;											#|Replace multiple TABs with single TAB
+		my @iprec = split/\t/, $thisIP;								#|Split the record into fields at TAB
+		if(@iprec gt 1) {													#|Does this rec contains any data?
+			$numdots = () = $iprec[0] =~ /.\d+/g;
+			$machinename = $iprec[1];
+			if($machinename eq "www") {
+				$msg = __LINE__.$errcolour." Error: ".$bricolour.$machinename." is defined.".$stdcolour;
+				&errorit($msg);
+				print $bricolour."\tServer ".$underline."www".$bricolour." must not be defined in IP files.${stdcolour}\n\tUse definition of mainIP in ${bricolour}stapler.conf${stdcolour} instead.\n\n";
+				exit;
+			}
+			$storeit = 1;
+			my $mxs = @mail;
+			if(@altNam gt $mxs) {
+				$mxs = @altNam;
+			}
+			for($mxno=0; $mxno < $mxs; $mxno++) {
+				if(defined($altNam[$mxno]) && $machinename eq $altNam[$mxno]) {
+					$warnmsg .= __LINE__." NB: Server $machinename.$thisdomain is set to $altAdd[$mxno].\n";
+					$storeit = 0;
+					#print $notecolour.__LINE__.": Skip ".$altNam[$mxno]." in $domfilename for domain $thisdomain ?".$stdcolour."\n" if($options{d} || $options{debug});
+				}
+			}
+			if(defined($allmachines) && index($machinename,$allmachines) > 0) {
+				$warnmsg .= __LINE__.$warncolour." Warning: '$machinename' had multiple definitions for $thisdomain. First entry was used.".$stdcolour."\n";
+				$storeit = 0;
+			}
+			if($storeit == 1) {
+				if(!defined($allmachines) || index($allmachines, " ".$machinename." ") < 0) {
+					$allmachines .= " ".$machinename." ";
+				}
+
+				my $Arec;
+				if($baseIP eq "dynamic") {
+					$Arec = $iprec[0];											#|dynamic file has complete IP address
+				} else {
+					$Arec = $baseIP.".".$iprec[0];							#|add base address to machine's octet(s)
+				}
+				if($numdots > 3 && ! $thisIPfile =~ "dynamic") {
+					$msg = "\n\t".__LINE__.$warncolour." Warning: A complete IP address (".$iprec[0].") is specified in ".$thisIPfile.$stdcolour.".\n\t$Arec";
+					&errorit($msg);
+				}
+				printf $DomFH "%-24s%-8s%-8s%s\n", $machinename, " ", "A", $Arec;		#|Write the A record for this machine
+				&debugWrite(__LINE__, "$thisdomain:  $machinename A $Arec");
+			} else {
+				&debugWrite(__LINE__, "NOT writing $machinename for $thisdomain");
+			}
+		}
+	}	#endwhile reading IP list
+}
+
+
+sub processCNAMEs {
+	open(ALIASFILE, "<$aliasfile") or die("$aliasfile file not found.");
+	while($thisalias = <ALIASFILE>) {
+		chomp($thisalias);
+		#|ignore comment lines beginning with hash mark
+		if(index($thisalias, "#") < 0 && length($thisalias) > 5) {
+			$thisalias =~ tr/ /	/s;									#|Replace multiple spaces with a single TAB
+			$thisalias =~ tr/	/	/s;									#|Replace multiple TABs with single TAB between fields
+			@aliaslist = split/	/, $thisalias;						#|Now split the record into fields
+			$alias = shift(@aliaslist);
+			$server = shift(@aliaslist);
+			$domain = shift(@aliaslist);
+			if(length($server) < 1) {
+				die "	${errcolour}ERROR:${stdcolour}  No server name for CNAME $alias.\n";
+			}
+		
+# We are writing aliases at the bottom of the file, so it's too late to
+# replace a server name with an alias, to over-ride the www setting, for example.
+
+			if(defined($allmachines) && index($allmachines," ".$alias." ") > -1) {	#|alias in machine list?
+				die "	${errcolour}ERROR:${stdcolour}  '$alias' is double-defined as a server name and a CNAME alias.\n\n";
+			}
+#
+# The alias file might contain primary domain names that are NOT defined on this server
+# (e.g., if the aliases file were copied from another machine), so we must check each
+# domain before writing.
+#
+# There might be domains defined in the aliases file that are not primary for this
+# DNS server, so check if the array is defined before checking its value.
+			&debugWrite(__LINE__, "Consider $alias:  domainswritten for $domain is ".$domainswritten{$domain});
+			if(defined($domainswritten{$domain})) {
+				$domfilename = "$zonedir/$pridir/".$domain;
+				open(DOMFILE, ">>$domfilename") or die("Can't open $domfilename for appending CNAMEs for domain '$domain'.");
+				if($domainswritten{$domain} != 3) {
+					$domainswritten{$domain} = 3;
+					if(-e $domfilename) {
+						my $msg = "Writing aliases for $domfilename";
+						&checkbox($msg);
+						print DOMFILE "\n\n;---------\n; Aliases\n\n";
+					}
+					&checkit;
+				}
+				&debugWrite(__LINE__, "Write $alias CNAME $server to $domfilename");
+				printf DOMFILE "%-34s %-8s %s\n", $alias, "CNAME", $server;
+				close(DOMFILE);
+			}
+		}
+	}	
+}
+
+sub deriveNetblock {
+	($thisIPfile) = @_;
+
+	my $testme = $thisIPfile;
+	my $thepos = index($testme,"/",1);
+	if($thepos > 0) {														#|Got a slash in there?
+		do {
+			$testme = substr($testme,$thepos+1);					#|-- get rid of this portion
+			$thepos = index($testme,"/",1);
+			} while index($testme,"/",1) > 0;						#|-- any more slashes?
+		}																		#|- no more slashes, just the filename
+	my @iptemp = split/\./, $testme;									#|split the filename at the dots
+	$ip1 = shift(@iptemp);												#|first portion of the file name (e.g., '10.0')
+	if($ip1 eq "[A-Z][a-z][0-9]") {
+		$ip1 = shift(@iptemp);											#|- throw it out, grab next element
+		}
+	$ip2 = shift(@iptemp);												#|second octet
+	$ip3 = shift(@iptemp);												#|third octet
+	$baseIP = $ip1;
+	if (defined $ip2 && length($ip2) > 0) {
+		$baseIP = $baseIP.".".$ip2;
+		}
+	if (defined $ip3 && length($ip3) > 0) {
+		$baseIP = $baseIP.".".$ip3;
+		}
+
+	#
+	#|Derive the reverse IP of the $baseIP above (for in-addr.arpa)
+	#
+	if(defined $ip3) {
+		$rIP = $ip3.".".$ip2.".".$ip1;
+	} elsif(defined $ip2) {
+		$rIP = $ip2.".".$ip1;
+	} else {
+		$rIP = $ip1;
+	}
+}
+
+sub createlocalzone {
+	#|----------------------------------------------------------------------
+	#	Remember to change serial number if modified
+	#
+	my $file127 = "$zonedir/$pridir/127.zone";
+	open(ZONE127, ">$file127") or die("Can't create $file127.");
+	print(ZONE127 "\$ORIGIN 127.in-addr.arpa.\n");
+	print(ZONE127 "\$TTL 1D\n");
+	print(ZONE127 "@		IN SOA		localhost.   root.localhost. (\n");
+	print(ZONE127 "				2019012900	; serial no.\n");
+	print(ZONE127 "				1D		; refresh slaves\n");
+	print(ZONE127 "				1H		; retry slaves\n");
+	print(ZONE127 "				1W		; expire\n");
+	print(ZONE127 "				3H )		; minimum TTL in others' caches\n");
+	print(ZONE127 "\n");
+	print(ZONE127 "		IN NS		@\n");
+	print(ZONE127 "		IN A		127.0.0.1\n");
+	print(ZONE127 "		IN AAAA		::1\n");
+	print(ZONE127 "*	1D	IN PTR		localhost.\n");
+	close(ZONE127);
+
+	my $filelocal = "$zonedir/$pridir/localhost.zone";
+	open(LZ, ">$filelocal") or die("Can't create $filelocal.");
+	print(LZ "\$TTL 1W\n");
+	print(LZ "@		IN SOA	localhost.   root.localhost. (\n");
+	print(LZ "				2020111000	; serial no.\n");
+	print(LZ "				1D		; refresh\n");
+	print(LZ "				1H		; retry\n");
+	print(LZ "				1W		; expire\n");
+	print(LZ "				3H )		; minimum\n\n");
+	print(LZ "@		IN NS		localhost.\n");
+	print(LZ "@		IN A		127.0.0.1\n");
+	print(LZ "@		IN AAAA		::1\n");
+	close(LZ);
+}
+
+sub createcache {
+	#|----------------------------------------------------------------------
+	#|Create a named.cache file if it does not already exist
+
+	my $newmaster  = "$zonedir/named.cache";
+	print __LINE__." Does $newmaster already exist?\n" if($options{d} || $options{debug});
+	if(! -e $newmaster) {
+		print "Fetching latest named.cache from internic.net\n";
+		`curl ftp://ftp.internic.net/domain/named.cache > $newmaster`;
+	}
+}
+
+sub checkbox {
+	#|----------------------------------------------------------------------
+	#|Print message then advance to column 65 and display checkbox
+	#
+	my ($msg) = @_;
+	print $msg;
+	my $plainmsg = "";
+	my $controlchar = 0;
+	my $i = 0;
+	for($i=0;$i<length($msg);$i++) {
+		my $thischar = substr($msg, $i, 1);
+		if($thischar eq "\e") {
+			$controlchar = 1;
+		}
+		if ($controlchar == 0) {
+			$plainmsg .= $thischar;
+		}
+		if ($controlchar == 1 && $thischar eq "m") {
+			$controlchar = 0;
+		}
+	}
+	for($i=length($plainmsg);$i<65;$i++) {
+		print ".";
+	}
+	print "[ ]";
+}
+sub checkit {
+	my ($msg) = @_;
+	print "\b\bOK] ";
+	print $msg if(defined $msg);
+	print "\n";
+}
+sub errorit {
+	my ($msg) = @_;
+	print "\b\bx] ".$bricolour.$msg.$stdcolour."\n";
+}
+#																			|Show a message in red
+sub showerror {
+	my($msglines, $severity, $lineno) = @_;
+	if(length($msglines) < 1) {
+		return;														#	|Nothing to display
+	}
+	my $linetext = "";
+	if(!defined $severity) {
+		my $severity = 0;
+	}
+	if(defined $lineno) {
+		$linetext = $dimcolour.sprintf("%4d",$lineno).$stdcolour." ";
+	}
+	my $type = $errcolour."ERROR ";
+	if($severity eq 1) {
+		$type = $warncolour."WARNING ";
+	} elsif($severity eq 2) {
+		$type = $notecolour."NOTICE ";
+	}
+	my(@msg) = split/\n/, $msglines;
+	foreach my $line (@msg) {
+		print tabto(8).$linetext.$type.$line.$stdcolour."\n";
+	}
+	$warnmsg = "";
+}
+
+sub makerecursionlist {
+	my $recursionlist = "";
+	foreach my $netblock (@OurNetworks) {
+		$recursionlist .= $netblock.";\n\t";
+	}
+	$recursionlist .= "localhost; 127.0.0.0/8; ::1/128;";
+	return $recursionlist;
+}
+sub makexferlist {
+	my $xferlist = "";
+	foreach my $netblock (@OurNetworks) {
+		if($xferlist != "") {
+			$xferlist .= "\n\t";
+		}
+		$xferlist .= $netblock.";";
+	}
+	return $xferlist;
+}
+
+sub write_www_rec {
+	# Check if 'www' is defined as a CNAME alias
+	$cname = `grep -cE "^www.*".$thisdomain aliases.stapler`;
+	if(defined($altWWW) && $altWWW =~ "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+") {
+		printf $DomFH "%-24s%-8s%-8s%s\n", $thisdomain.".", " ", "A", $altWWW;
+		printf $DomFH "%-24s%-8s%-8s%s\n\n", "www", " ", "A", $altWWW if($cname == 0);
+		return 1;
+	}
+	if(defined($altWWW) && $altWWW eq "none") {
+		return 0;
+	}
+	@wwws = split/ /, $webserver;										#|Separate web server addresses
+	$iw = 0;
+	do {
+		printf $DomFH "%-24s%-8s%-8s%s\n", $thisdomain.".", " ", "A", $wwws[$iw];
+		printf $DomFH "%-24s%-8s%-8s%s\n\n", "www", " ", "A", $wwws[$iw] if($cname == 0);
+		$iw++;
+	} until !defined $wwws[$iw];
+	return 0;
+}
+
+#|_______________________________________________________________
+#|Functions for new configuration formats
+#|
+#|Read values from stapler.conf
+#|Pass		key_to_find		str	Left-hand side of key-value pair
+#|				maxvals			int	undef/0=unlimited, else max number of values for this key (usually 1).
+#|				optional			int	undef/0=required, 1=optional
+sub read_conf {
+	my ($key_to_find, $maxvals, $optional) = @_;
+	my @ret = undef;
+	my $key = undef;
+	my $value = undef;
+	my $is_optional = (defined $optional && $optional eq 1);
+	my $cfg_file = "$datadir/stapler.conf";
+	open(CONF, "<$cfg_file") or die $!;
+	while(my $line = <CONF>) {
+		chomp($line);
+		my $eqsign = index($line, "=");
+		next if(substr($line,0,1) eq "#" || $eqsign lt 0);
+		$key = substr($line, 0, $eqsign++);
+		$key =~ s/^\$|\s+|\s+$//g;
+		$value = substr($line, $eqsign);
+		if($key eq $key_to_find) {
+			$value =~ s/^\s+|\s+$|"|;|\s*#.*//g;					#|Strip spaces and quotation marks
+			if(defined $ret[0]) {
+				push @ret, $value;
+			} else {
+				@ret[0] = $value;
+			}
+			#print __LINE__." $key = |$value|\n" if($options{d} || $options{debug});
+		}
+	}
+	close CONF;
+	if(!defined $ret[$#ret]) {
+		if($is_optional) {
+			&showerror("Optional key '$key_to_find' is not defined in $cfg_file.", $NOTICE, __LINE__);
+		} else {
+			&showerror("Required key '$key_to_find' is not defined in $cfg_file.  Check for $key_to_find=value pair(s) in the file.", $ERROR, __LINE__);
+			$ErrorCondition++;
+		}
+	}
+	if(defined $maxvals && $maxvals gt 0 && @ret gt $maxvals) {
+		my $defs = "definitions";
+		$defs = "definition" if($maxvals eq 1);
+		&showerror("There can only be $maxvals $defs for $key_to_find.  Check $configfile.", $ERROR, __LINE__);
+		exit(1);
+	}
+	#print __LINE__.": ".@ret." $key_to_find:  @ret\n" if($options{d} || $options{debug});
+	my $msg = @ret." $key_to_find:  @ret";
+	&debugWrite(__LINE__, $msg);
+	return @ret;
+}
+
+sub debugWrite() {
+	my ($lineno, $msg) = @_;
+	print "\e[0;32m".$lineno.":  \e[0;36m".$msg."\e[0m\n" if($options{d} || $options{debug});
+}
+
+sub validateAddrs() {
+	my @aa = @_;
+	my $ec = 0;
+	my $test = "";
+	foreach my $address (@aa) {
+		$test = $address;
+		$test =~ s#\d|\.|/##g;
+		&debugWrite(__LINE__, "Addr [$address] test [$test]");
+		if(length($test) > 0) {
+			&showerror("IP address '$address' is invalid.  Check $configfile", $ERROR, __LINE__);
+			$ec ++;
+		}
+	}
+	return $ec;
+}
+sub validateFiles() {
+	my @fa = @_;
+	my $ec = 0;
+	foreach my $afile (@fa) {
+		if(!-e $afile) {
+			$afile = $datadir."/".$afile;										#|Check in datadir
+		}
+		if(!-e $afile) {
+			&showerror("File '$afile' is missing.  Check $configfile", $ERROR, __LINE__);
+			$ec++;
+		}
+	}
+	return $ec;
+}
+sub isatty() {
+	no autodie; 
+	return open(my $tty, '+<', '/dev/tty'); 
+}
+sub tabto() {
+	if(isatty()) {
+		my $tabstop = @_[0];
+		return "\r\e[".$tabstop."C";
+	}
+	return " ";
+}
+

@@ -1,0 +1,131 @@
+# Stapler configuration file
+# vim: ts=3:
+# Angelo Babudro, ISP Ltd.  a@ispltd.com   https://ispltd.com
+#
+# This file contains key = value pairs.
+# Comments and blank lines are ignored.
+# Keys can be as a variable with a dollar-sign (e.g., $domainname) or just the key name.
+# Values can be enclosed in quotation marks or not.
+# Below you will see keys and values given both ways as an example of this flexibility.
+# ======================================================================
+#
+# Primary domain name of the network.
+# This is the domain which will define the name servers, so it is best
+# to be the domain used in registering your name servers on the Internet.
+# This is also the zone file used to grab an existing serial number.
+#
+domainname = "example.ca";
+# - - - - - - - - - - - - - - - - - -
+#
+# IP file(s)
+# - you may define any number of files containing machine IP addresses for the network
+# - put each file in quotes, separated by a comma
+# - you may use multiple lines to list files; only the last line should have a semi-colon
+# - WARNING - FIRST ONE LISTED is the BASE for the $mainIP below!
+#	so put the most important one FIRST
+#
+IPfiles = 10.2.3
+IPfiles = 192.168
+IPfiles = dynamic
+
+ournet = 10.11.12.0/24			# Trusted machines can be individual IP addresses or CIDR blocks.
+ournet = 192.168.1.1				# enter as many as you like.  Comments can go on the right like this.
+
+named_user = "named:named";
+www_user = "apache";			#|User name web server runs as, so that checkin.php can modify the dynamic file
+
+# - - - - - - - - - - - - - - - - - -
+#
+# Address of default web server to handle requests that do not contain a server name
+# (e.g., http://ispltd.com vs http://www.ispltd.com).
+# - Each domain can have its own, defined in the Alt Web Server field of the domain.primary file.
+# - If your router has intelligence to direct traffic, then point to it.
+#   Otherwise point to your web server.
+# - Separate multiples with spaces.
+#
+mainIP = 10.0.1.2					# The IP address that a domain without a hostname will point to
+
+# - - - - - - - - - - - - - - - - - -
+#
+# Local machine zone file prefix (e.g., 'db' is common)
+# May contain a pathname.
+#
+fileprefix = "db";
+# - - - - - - - - - - - - - - - - - -
+#
+# FQDNs of name servers.  The first one is the master, the rest are slaves.
+# These are used to write the IN NS lines in the zone files.
+ns = ns1.example.com
+ns = ns2.example.com
+# Slave DNS IP addresses for copying configuration files to slave servers.
+# - you do not need to define this (local) server here, but it's okay if you do.
+# - these could be public IP addresses or management interfaces
+#slavedns = 47.54.248.49
+#slavedns = 64.85.172.241
+#slavedns = 64.85.168.238 gone as of 18-08-2017
+
+# IP address of master NS for slaves to use
+ns1IP = 10.0.0.1						# IP address of the primary/master DNS server
+
+# mail server(s)
+mail = smtp
+#
+# Forwarders - the DNS addresses to which non-authoritative lookups should be
+# forwarded before being sent to the Internet.  If there is a DNS at your ISP
+# then this would be the best use of this.  You can list as many as you like.
+#	Level3 public DNS:  4.2.2.1 and 4.2.2.2
+#	Google Open DNS:  8.8.8.8 and 8.8.4.4
+#
+fwd = 4.2.2.2
+
+# - - - - - - - - - - - - - - - - - -
+#
+# Hostmaster's e-mail address in dotted notation (no '@' sign)
+# You could also use 'joe.$domainame' or 'julie.anotherisp.com'
+# The $domainname variable is defined above.
+#
+email = tech.support.example.ca
+# - - - - - - - - - - - - - - - - - -
+#
+# Default TTL (Time To Live) for all records which do not explicitly state a different TTL.
+#
+# Setting to 15 minutes (900 seconds) to see if we can improve disaster recovery.
+# 31/10/09 Setting to 5 minutes (300 seconds).  Let's see how that goes.
+#
+$ttl = "4H";		# Default TTL for all RRs. Static environment: 2D to 7D; dynamic: 300 (secs) to 1D
+#
+# SOA record elements:
+#
+$refresh = "1H";	# How often do slaves check if up-to-date?  s/b at least 2 x retry
+$retry = "900";	# How often will slaves retry when master cannot be reached?
+$expire = "1W";	# If slave cannot reach master for $expire days, data is expired. s/b 1W or more
+$minttl = "30m";	# Minimum TTL.  A static DNS: 1D~2D.  Dynamically changing DNS: 30m ~ 8h (could be as low as 60s)
+#
+# ----------------------------------------------------------------------
+# Server settings
+
+# Name of the rndc key for this server in /etc/named/rndc.key
+
+rndckey = "rndc-key";
+
+# Directories.  If undefined it will use Gentoo defaults.
+
+$confdir = "/etc/bind";			#|named.conf directory
+$zonedir = "/var/bind";			#|named zone files directory
+$pridir = "pri";					#|Primary NS domains subdir
+$secdir = "sec";					#|Secondary NS domains subdir
+
+# What would you like to use to remotely copy the named.conf file to slaves?
+# Some ideas are:
+#		scp -pq
+#		rsync --backup --backup-dir=/tmp
+
+$remotecopy = "rsync --backup --backup-dir=/tmp";
+
+# According to perldoc: The file must return true as the last statement to
+# indicate successful execution of any initialization code, so it's
+# customary to end such a file with 1; unless you're sure it'll return true
+# otherwise.  But it's better just to put the 1; , in case you add more
+# statements.
+1;
+

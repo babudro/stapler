@@ -1,0 +1,6 @@
+# Nightly Cron definition to fetch the latest file of top-level DNS servers.
+
+#Mn Hr DoM Mo DoW command(s)
+#-- -- --- -- --- ----------------------------
+00  00  *  *  Sun curl ftp://ftp.internic.net/domain/named.cache > /var/bind/root.cache
+

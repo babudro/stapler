@@ -1,0 +1,16 @@
+# stapler.pl list of secondary-hosted domain names (A Babudro)
+# vim: ts=8:sw=8:
+# Comments and empty lines are ignored
+#
+# The only required field is the domain name; others are optional.
+# Place at least one TAB between fields.
+# Fields MUST be filled left to right.  Key word 'none' is allowed.
+# e.g., to define 'Alt MX1' you MUST define 'Alt WebServer' first,
+#	otherwise 'Alt MX1' will be interpreted as 'Alt WebServer'.
+#
+# Domain Name		Master NS	Comment (optional)
+# -----------------	-------------	-------------------
+# adomain.com		100.200.1.2	John Doe's domain (customer 12345)
+# ---------------------------------------------------------------------------------
+
+

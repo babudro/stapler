@@ -1,0 +1,22 @@
+# stapler.pl list of domain names (A Babudro)
+# vim:ts=8:sw=8:
+# Comments (#) and empty lines are ignored
+# 
+# The only required field is the domain name; others are optional.
+# Place at least one TAB between fields.
+# Fields MUST be filled left to right.  Key word 'none' is allowed.
+# e.g., to define 'Alt MX1' you MUST define 'Alt WebServer' first,
+#	otherwise 'Alt MX1' will be interpreted as 'Alt WebServer'.
+#
+# Domain Name		Alt WebServer	Alt MX1			Alt MX2			Alt-whatever #1		Alt-whatever #2
+# -----------------	-------------	-----------------------	-----------------------	-----------------------	------------------
+# normal.com
+# abnormal.com		100.200.1.2	mail	100.200.1.3	mail2	100.200.1.4	smtp	214.127.130.119	sql	1.2.3.4
+# this-won't-work.ca			mail	100.200.1.3
+# this-will-work.ca	none		mail	100.200.1.3	none	none		ns1	100.101.102.103
+# mydomain.com		SPF	"v=spf1 mx ip4:12.34.56.78 mx:mail.mydomain.com -all"
+# mydomain.com		TXT	"Some interesting comment.  You can have Alt, SPF, TXT, and DKIM lines for a domain."
+# mydomain.com		DKIM	dkim._domainkey ( "v=DKIM1; k=rsa; " "whatever..." )  ; ----- DKIM key for whatever
+# ---------------------------------------------------------------------------------
+
+

@@ -1,0 +1,40 @@
+# vim: sw=8 ts=8:
+# A sample configuration file
+#
+# Put the remainder of IP address on the left, some white space (TAB or
+# spaces), and then the host name.
+#
+# For example, if this file is named 192.168 then you can define a /16 subnet
+# by putting the remaining two octets for each entry, such as:
+1.1	wifi
+1.10	ns1
+1.20	printer
+2.10	phone1
+3.2	phone2
+
+# In the above example, 192.168.1.1 will be "wifi", 192.168.3.2 will be
+# "phone2", etc.  The first two octets -- 192.168 -- are derived from the
+# file's name.
+
+
+# If this file is named 192.168.1 then are only dealing with the last octet of
+# a /24 subnet, so the inputs are simpler, e.g.:
+
+1	wifi
+10	ns1
+20	printer
+30	phone1
+31	phone2
+
+# In this case all the names will start with 192.168.1 so phone2 is 192.168.1.31
+
+
+# If this file is named 192 then you are defining a /8 subnet and would put
+# three octets for each entry, e.g.:
+
+168.1.1		wifi
+168.1.10	ns1
+168.1.20	printer
+168.2.10	phone1
+168.3.2		phone2
+
